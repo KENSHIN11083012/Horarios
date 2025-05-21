@@ -1,5 +1,5 @@
 """
-Configuraciones y constantes para el generador de horarios.
+Configuraciones para el generador de horarios.
 """
 
 # Tipos de turnos
@@ -16,37 +16,39 @@ SHIFT_HOURS = {
 NUM_TECHNOLOGISTS = 13
 NUM_ENGINEERS = 4
 
-# Número de trabajadores por turno
+# Número de trabajadores por turno - CORREGIDO
 TECHS_PER_SHIFT = {
-    "Mañana": 4,
-    "Tarde": 4,
+    "Mañana": 5,  
+    "Tarde": 5,    
     "Noche": 2
 }
 ENG_PER_SHIFT = 1
 
-# Tasas de compensación en Colombia
-NIGHT_SHIFT_RATE = 1.35     # 35% adicional por nocturnidad
-HOLIDAY_RATE = 1.75         # 75% adicional por festivos
-SUNDAY_RATE = 1.75          # 75% adicional por domingos
+# Tasas de compensación (nuevas reglas)
+COMPENSATION_RATES = {
+    "DIURNO": 1.0,                # Turno diurno regular (Mañana, Tarde)
+    "NOCTURNO": 1.5,              # Turno nocturno regular
+    "FIN_DE_SEMANA_DIURNO": 2.0,  # Turno diurno en fin de semana
+    "FIN_DE_SEMANA_NOCTURNO": 2.5 # Turno nocturno en fin de semana
+}
 
-# Festivos colombianos 2025 (formato MM-DD)
 COLOMBIAN_HOLIDAYS_2025 = [
     "01-01",  # Año Nuevo
-    "01-06",  # Reyes Magos
-    "03-24",  # San José
+    "01-06",  # Día de los Reyes Magos
+    "03-24",  # Día de San José (trasladado)
     "04-17",  # Jueves Santo
     "04-18",  # Viernes Santo
     "05-01",  # Día del Trabajo
-    "05-12",  # Ascensión del Señor
-    "06-02",  # Corpus Christi
-    "06-23",  # Sagrado Corazón
-    "06-30",  # San Pedro y San Pablo
-    "07-20",  # Independencia
+    "06-02",  # Día de la Ascensión (trasladado)
+    "06-23",  # Corpus Christi (trasladado)
+    "06-30",  # Sagrado Corazón (trasladado)
+    "07-07",  # San Pedro y San Pablo (trasladado)
+    "07-20",  # Día de la Independencia
     "08-07",  # Batalla de Boyacá
-    "08-18",  # Asunción
-    "10-13",  # Día de la Raza
-    "11-03",  # Todos los Santos
-    "11-17",  # Independencia de Cartagena
-    "12-08",  # Inmaculada Concepción
+    "08-18",  # Asunción de la Virgen (trasladado)
+    "10-13",  # Día de la Raza (trasladado)
+    "11-03",  # Día de Todos los Santos (trasladado)
+    "11-17",  # Independencia de Cartagena (trasladado)
+    "12-08",  # Día de la Inmaculada Concepción
     "12-25",  # Navidad
 ]
