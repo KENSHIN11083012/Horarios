@@ -24,6 +24,11 @@ TECHS_PER_SHIFT = {
 }
 ENG_PER_SHIFT = 1
 
+# Tasas de compensación (formato antiguo para compatibilidad)
+NIGHT_SHIFT_RATE = 1.5
+HOLIDAY_RATE = 2.0
+SUNDAY_RATE = 2.0
+
 # Tasas de compensación (nuevas reglas)
 COMPENSATION_RATES = {
     "DIURNO": 1.0,                # Turno diurno regular (Mañana, Tarde)
