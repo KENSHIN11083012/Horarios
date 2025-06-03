@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-from ...core.models import Schedule
+from ...core.models import Schedule, Worker
 from ...core.services import (
     ScheduleOptimizer,
     OptimizationConfig,
