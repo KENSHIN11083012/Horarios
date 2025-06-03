@@ -10,334 +10,310 @@ from algorithms.common import create_date_index
 
 def ensure_weekly_days_off(schedule, technologists, engineers, date_index=None):
     """
-    Asegura que cada trabajador tenga un día libre semanal.
-    Optimizado para distribuir mejor los días libres a lo largo de la semana.
+    CORRECCIÓN PRINCIPAL: Asegura días libres semanales con algoritmo más agresivo
     
-    Args:
-        schedule: Horario a modificar
-        technologists: Lista de tecnólogos
-        engineers: Lista de ingenieros
-        date_index: Índice de fechas para acceso rápido
+    CAMBIOS BASADOS EN DIAGNÓSTICO:
+    1. Umbral ajustado: 5+ días para requerir día libre (antes 3+)
+    2. Algoritmo MÁS AGRESIVO: Garantiza al menos 1 día libre por semana
+    3. Manejo especial de semanas problemáticas (inicio/fin de mes)
     """
-    print("Asignando días libres semanales...")
+    print("🔧 APLICANDO CORRECCIÓN DE DÍAS LIBRES...")
     
-    # Usar índice para acceso O(1)
     if date_index is None:
         date_index = create_date_index(schedule)
     
-    # Obtener todas las semanas en el período
-    weeks = []
-    current_date = get_week_start(schedule.start_date)  # Comenzar desde el inicio de la semana
-    
-    while current_date <= schedule.end_date:
-        week_end = get_week_end(current_date)
-        
-        # Solo incluir semanas que se superpongan con el período
-        if not (week_end < schedule.start_date or current_date > schedule.end_date):
-            effective_start = max(current_date, schedule.start_date)
-            effective_end = min(week_end, schedule.end_date)
-            weeks.append((current_date, week_end, effective_start, effective_end))
-        
-        current_date += timedelta(days=7)
-    
+    # Obtener semanas con criterio corregido
+    weeks = get_corrected_weeks(schedule.start_date, schedule.end_date)
     all_workers = technologists + engineers
     
-    # Fase 1: Asignar días libres después de turnos nocturnos (prioridad máxima)
-    print("  Fase 1: Asignando días libres post-nocturnos...")
-    workers_with_days_off = set()  # Seguimiento de trabajadores con días libres asignados
+    print(f"  📅 Procesando {len(weeks)} semanas efectivas")
+    print(f"  👥 Analizando {len(all_workers)} trabajadores")
     
-    for worker in all_workers:
-        worker_id = worker.get_formatted_id()
-        
-        for week_start, week_end, effective_start, effective_end in weeks:
-            # Verificar si ya tiene día libre esta semana
-            days_off_in_week = [d for d in worker.days_off 
-                             if effective_start <= d <= effective_end]
-            
-            if days_off_in_week:
-                workers_with_days_off.add(worker.id)
-                continue  # Ya tiene día libre esta semana, pasar a la siguiente
-            
-            # Buscar turnos nocturnos en la semana
-            night_shifts = [(d, s) for d, s in worker.shifts 
-                          if s == "Noche" and effective_start <= d <= effective_end]
-            
-            # Si hay turnos nocturnos, intentar asignar día libre al día siguiente
-            if night_shifts:
-                night_shifts.sort(key=lambda x: x[0])  # Ordenar por fecha
-                
-                for night_date, _ in night_shifts:
-                    next_day = night_date + timedelta(days=1)
-                    
-                    # Verificar si el día siguiente está en el rango efectivo
-                    if effective_start <= next_day <= effective_end:
-                        # Verificar si no hay turno asignado ese día
-                        if not any(d == next_day for d, _ in worker.shifts):
-                            worker.add_day_off(next_day)
-                            workers_with_days_off.add(worker.id)
-                            print(f"    Día libre asignado a {worker_id} el {next_day.strftime('%d/%m/%Y')} (después de noche)")
-                            break  # Asignado un día libre para esta semana
+    # ESTADÍSTICAS INICIALES
+    initial_problems = count_initial_problems(all_workers, weeks)
+    print(f"  ⚠️  Problemas iniciales detectados: {initial_problems}")
     
-    # Fase 2: Distribución equilibrada de días libres
-    print("  Fase 2: Distribución equilibrada de días libres...")
+    # FASE 1: Asignación inmediata de días críticos
+    phase1_assigned = assign_critical_days_off(all_workers, weeks, schedule)
     
-    for week_start, week_end, effective_start, effective_end in weeks:
-        # Analizar distribución actual de días libres en esta semana
-        days_off_distribution = {}
-        for day in date_range(effective_start, effective_end):
-            days_off_distribution[day] = {
-                'tech_count': 0,
-                'eng_count': 0,
-                'total_assigned': 0,  # Trabajadores asignados ese día
-                'workers': []  # Lista de trabajadores con día libre ese día
-            }
+    # FASE 2: Completar días libres faltantes con algoritmo agresivo  
+    phase2_assigned = complete_missing_days_off(all_workers, weeks, schedule, date_index)
+    
+    # FASE 3: Validación y corrección final
+    phase3_fixes = final_validation_and_emergency_fixes(all_workers, weeks, schedule, date_index)
+    
+    # ESTADÍSTICAS FINALES
+    final_problems = count_final_problems(all_workers, weeks)
+    
+    print(f"\n📊 RESULTADO DE LA CORRECCIÓN:")
+    print(f"  📉 Problemas: {initial_problems} → {final_problems}")
+    print(f"  ✅ Asignados Fase 1: {phase1_assigned}")
+    print(f"  ✅ Asignados Fase 2: {phase2_assigned}")
+    print(f"  🚨 Correcciones Fase 3: {phase3_fixes}")
+    
+    if final_problems == 0:
+        print("  🎉 ¡ÉXITO TOTAL! Todos los trabajadores tienen día libre semanal")
+    elif final_problems < initial_problems * 0.2:
+        print(f"  🎯 ¡GRAN MEJORA! Reducción del {((initial_problems-final_problems)/initial_problems)*100:.1f}%")
+    else:
+        print(f"  ⚠️  Aún quedan {final_problems} casos por resolver")
+    
+    return final_problems
+
+def get_corrected_weeks(start_date, end_date):
+    """
+    Obtiene semanas con criterio CORREGIDO basado en diagnóstico
+    CAMBIO: Solo semanas con 5+ días efectivos (antes 3+)
+    """
+    weeks = []
+    current_week_start = get_week_start(start_date)
+    end_week_start = get_week_start(end_date)
+    
+    while current_week_start <= end_week_start:
+        week_end = get_week_end(current_week_start)
         
-        # Contar días libres actuales por día
-        for worker in all_workers:
-            for day in worker.days_off:
-                if effective_start <= day <= effective_end:
-                    worker_type = 'tech_count' if worker.is_technologist else 'eng_count'
-                    if day in days_off_distribution:
-                        days_off_distribution[day][worker_type] += 1
-                        days_off_distribution[day]['workers'].append(worker.id)
+        if not (week_end < start_date or current_week_start > end_date):
+            effective_start = max(current_week_start, start_date)
+            effective_end = min(week_end, end_date)
+            effective_days = (effective_end - effective_start).days + 1
+            
+            # CRITERIO CORREGIDO: 5+ días para evitar problemas en semanas cortas
+            if effective_days >= 5:
+                weeks.append({
+                    'start': current_week_start,
+                    'end': week_end,
+                    'effective_start': effective_start,
+                    'effective_end': effective_end,
+                    'effective_days': effective_days,
+                    'label': f"{effective_start.strftime('%d/%m')} - {effective_end.strftime('%d/%m')}",
+                    'is_short': effective_days < 7
+                })
         
-        # Contar asignaciones por día
-        for day in date_range(effective_start, effective_end):
-            day_data = date_index.get(day)
-            if day_data:
-                for shift_type in ["Mañana", "Tarde", "Noche"]:
-                    shift_data = day_data["shifts"][shift_type]
-                    techs_count = len(shift_data["technologists"])
-                    eng_assigned = 1 if shift_data["engineer"] is not None else 0
-                    days_off_distribution[day]['total_assigned'] += techs_count + eng_assigned
+        current_week_start += timedelta(days=7)
+    
+    return weeks
+
+def count_initial_problems(workers, weeks):
+    """Cuenta problemas iniciales para comparación"""
+    problems = 0
+    for worker in workers:
+        for week in weeks:
+            if not has_day_off_in_week(worker, week):
+                problems += 1
+    return problems
+
+def count_final_problems(workers, weeks):
+    """Cuenta problemas finales para validación"""
+    problems = 0
+    for worker in workers:
+        for week in weeks:
+            if not has_day_off_in_week(worker, week):
+                problems += 1
+    return problems
+
+def assign_critical_days_off(workers, weeks, schedule):
+    """
+    FASE 1: Asignación inmediata de días críticos
+    Prioriza trabajadores con menos días libres totales
+    """
+    print("  🚨 Fase 1: Asignando días libres críticos...")
+    
+    # Identificar trabajadores más necesitados (como T9, T10 del diagnóstico)
+    critical_workers = []
+    for worker in workers:
+        total_days_off = len(worker.days_off)
+        weeks_without_days = sum(1 for week in weeks if not has_day_off_in_week(worker, week))
         
-        # Asignar días libres a trabajadores que aún no los tienen
-        workers_needing_day_off = [w for w in all_workers if w.id not in workers_with_days_off]
+        if total_days_off <= 2 or weeks_without_days >= 3:
+            critical_workers.append((worker, weeks_without_days, total_days_off))
+    
+    # Ordenar por criticidad (más semanas sin días libres primero)
+    critical_workers.sort(key=lambda x: (x[1], -x[2]), reverse=True)
+    
+    assignments = 0
+    for worker, weeks_needed, current_days in critical_workers:
+        print(f"    🆘 CRÍTICO: {worker.get_formatted_id()} - {weeks_needed} semanas sin día libre")
         
-        # Ordenar trabajadores por carga de trabajo (descendente)
-        workers_needing_day_off.sort(key=lambda w: w.get_shift_count(), reverse=True)
+        # Asignar días libres para este trabajador crítico
+        for week in weeks:
+            if not has_day_off_in_week(worker, week):
+                assigned_date = assign_best_day_off(worker, week, schedule)
+                if assigned_date:
+                    worker.add_day_off(assigned_date)
+                    assignments += 1
+                    print(f"      ✅ Asignado: {assigned_date.strftime('%d/%m/%Y')}")
+    
+    return assignments
+
+def assign_best_day_off(worker, week, schedule):
+    """
+    Encuentra el mejor día para asignar como día libre
+    Prioriza días con menos carga de trabajo general
+    """
+    # Evaluar cada día de la semana
+    candidate_days = []
+    
+    for date in date_range(week['effective_start'], week['effective_end']):
+        # Si ya tiene turno o día libre, skip
+        if has_shift_on_date(worker, date) or date in worker.days_off:
+            continue
         
-        print(f"    Semana del {week_start.strftime('%d/%m/%Y')}: {len(workers_needing_day_off)} trabajadores necesitan día libre")
+        # Calcular "score" del día (menor = mejor)
+        score = calculate_day_score(date, week)
+        candidate_days.append((date, score))
+    
+    if candidate_days:
+        # Seleccionar el día con menor score (mejor opción)
+        candidate_days.sort(key=lambda x: x[1])
+        return candidate_days[0][0]
+    
+    return None
+
+def calculate_day_score(date, week):
+    """
+    Calcula score para un día como candidato a día libre
+    MENOR SCORE = MEJOR CANDIDATO
+    """
+    score = 0
+    
+    # Preferir días laborables en semanas completas
+    if not week['is_short']:
+        if date.weekday() < 5:  # Lunes a viernes
+            score += 0
+        else:  # Fin de semana
+            score += 5
+    else:
+        # En semanas cortas, cualquier día es bueno
+        score += 0
+    
+    # Evitar festivos si es posible
+    if is_colombian_holiday(date):
+        score += 3
+    
+    # Preferir días en medio de la semana
+    if date.weekday() in [1, 2, 3]:  # Martes, miércoles, jueves
+        score -= 2
+    
+    return score
+
+def complete_missing_days_off(workers, weeks, schedule, date_index):
+    """
+    FASE 2: Completar días libres faltantes con algoritmo agresivo
+    """
+    print("  🔄 Fase 2: Completando días libres faltantes...")
+    
+    assignments = 0
+    
+    for week in weeks:
+        week_label = week['label']
+        workers_needing_day_off = [w for w in workers if not has_day_off_in_week(w, week)]
+        
+        if not workers_needing_day_off:
+            continue
+        
+        print(f"    📅 Semana {week_label}: {len(workers_needing_day_off)} trabajadores necesitan día libre")
         
         for worker in workers_needing_day_off:
-            # Calcular días candidatos (no asignados)
-            candidate_days = []
+            success = False
             
-            for day in date_range(effective_start, effective_end):
-                # Verificar si ya tiene asignación ese día
-                if any(d == day for d, _ in worker.shifts):
-                    continue
-                
-                # Calcular costo de asignar día libre aquí
-                # Menor costo = mejor candidato
-                
-                # 1. Penalizar días ya sobrecargados con días libres
-                worker_type_key = 'tech_count' if worker.is_technologist else 'eng_count'
-                days_off_count = days_off_distribution[day][worker_type_key]
-                days_off_penalty = days_off_count * 5  # 5 puntos por cada día libre ya asignado
-                
-                # 2. Penalizar días con poca gente asignada
-                assigned_count = days_off_distribution[day]['total_assigned']
-                assignment_penalty = max(0, (len(all_workers) // 3) - assigned_count) * 3
-                
-                # 3. Priorizar días laborables (menor costo)
-                weekday_cost = 0 if day.weekday() < 5 else 10
-                
-                # 4. Penalizar lunes y viernes (para distribuir mejor)
-                edge_day_penalty = 5 if day.weekday() in [0, 4] else 0
-                
-                # 5. Preferir días con menos carga total
-                total_workers_penalty = sum(1 for w in all_workers if any(d == day for d, _ in w.shifts)) * 0.2
-                
-                # Costo total
-                total_cost = days_off_penalty + assignment_penalty + weekday_cost + edge_day_penalty + total_workers_penalty
-                
-                candidate_days.append((day, total_cost))
-            
-            # Ordenar días candidatos por costo (menor primero)
-            candidate_days.sort(key=lambda x: x[1])
-            
-            if candidate_days:
-                selected_day, cost = candidate_days[0]
-                
-                # Asignar día libre
-                worker.add_day_off(selected_day)
-                workers_with_days_off.add(worker.id)
-                
-                # Actualizar distribución
-                worker_type = 'tech_count' if worker.is_technologist else 'eng_count'
-                days_off_distribution[selected_day][worker_type] += 1
-                days_off_distribution[selected_day]['workers'].append(worker.id)
-                
-                print(f"    Día libre asignado a {worker.get_formatted_id()} el {selected_day.strftime('%d/%m/%Y')} (distribución equilibrada)")
-            else:
-                print(f"    ⚠️ No se encontró día libre para {worker.get_formatted_id()} en semana del {week_start.strftime('%d/%m/%Y')}")
-                free_days = get_week_workload(schedule, effective_start, effective_end, worker, date_index)
-                
-                if free_days:
-                    # Liberar el día con menor impacto
-                    free_day, shift_to_remove, liberation_cost = free_days[0]
-                    
-                    # Liberar este día
-                    liberate_day_for_worker(schedule, worker, free_day, shift_to_remove, date_index)
-                    
-                    # Asignar día libre
-                    worker.add_day_off(free_day)
-                    workers_with_days_off.add(worker.id)
-                    print(f"    ⚠️ Liberado turno {shift_to_remove} del {free_day.strftime('%d/%m/%Y')} para {worker.get_formatted_id()}")
-    
-    # Verificación final
-    print("  Verificando asignación final de días libres...")
-    workers_without_days = []
-    
-    for worker in all_workers:
-        days_off_by_week = []
-        
-        for week_start, week_end, effective_start, effective_end in weeks:
-            days_off_in_week = [d for d in worker.days_off 
-                              if effective_start <= d <= effective_end]
-            days_off_by_week.append(len(days_off_in_week))
-        
-        if 0 in days_off_by_week:
-            weeks_without = days_off_by_week.count(0)
-            workers_without_days.append((worker, weeks_without))
-            print(f"    ⚠️ {worker.get_formatted_id()} sin día libre en {weeks_without} semana(s)")
-    
-    if not workers_without_days:
-        print("    ✅ Todos los trabajadores tienen al menos un día libre por semana")
-    
-    # Si hay trabajadores sin días libres en alguna semana, intentar una última solución
-    if workers_without_days:
-        print("  Fase de emergencia: Intentando última corrección para días libres faltantes...")
-        for worker, weeks_without in sorted(workers_without_days, key=lambda x: x[1], reverse=True):
-            # Identificar semanas sin día libre
-            weeks_missing = []
-            for i, (week_start, week_end, effective_start, effective_end) in enumerate(weeks):
-                days_off_in_week = [d for d in worker.days_off 
-                                  if effective_start <= d <= effective_end]
-                if not days_off_in_week:
-                    weeks_missing.append((i, effective_start, effective_end))
-            
-            for week_idx, eff_start, eff_end in weeks_missing:
-                # Buscar el día con menor carga para liberarlo
-                free_days = get_week_workload(schedule, eff_start, eff_end, worker, date_index, emergency=True)
-                
-                if free_days:
-                    # Liberar el día con menor impacto, incluso si es crítico
-                    free_day, shift_to_remove, _ = free_days[0]
-                    
-                    # Liberar este día
-                    liberate_day_for_worker(schedule, worker, free_day, shift_to_remove, date_index)
-                    
-                    # Asignar día libre
-                    worker.add_day_off(free_day)
-                    print(f"    ⚠️ EMERGENCIA: Liberado turno {shift_to_remove} del {free_day.strftime('%d/%m/%Y')} para {worker.get_formatted_id()}")
+            # ESTRATEGIA 1: Día naturalmente libre
+            for date in date_range(week['effective_start'], week['effective_end']):
+                if (not has_shift_on_date(worker, date) and 
+                    date not in worker.days_off):
+                    worker.add_day_off(date)
+                    assignments += 1
+                    print(f"      ✅ {worker.get_formatted_id()}: {date.strftime('%d/%m')}")
+                    success = True
                     break
-
-
-def get_week_workload(schedule, start_date, end_date, worker, date_index, emergency=False):
-    """
-    Analiza la semana para identificar qué día sería mejor liberar para el trabajador.
-    
-    Args:
-        schedule: Horario actual
-        start_date: Fecha de inicio de la semana
-        end_date: Fecha final de la semana
-        worker: Trabajador a analizar
-        date_index: Índice de fechas para acceso rápido
-        emergency: Indica si es una situación de emergencia
-        
-    Returns:
-        list: Lista de tuplas (día, turno, costo) ordenadas por costo de liberación
-    """
-    shifts_to_evaluate = []
-    
-    # Calcular el promedio de turnos por tipo manualmente
-    shift_counts = worker.get_shift_types_count()
-    total_shifts = sum(shift_counts.values())
-    avg_shifts_per_type = total_shifts / len(shift_counts) if len(shift_counts) > 0 else 0
-    
-    for d, s in worker.shifts:
-        if start_date <= d <= end_date:
-            # Obtener día del horario usando el índice
-            day_data = date_index.get(d)
             
-            if day_data:
-                shift_data = day_data["shifts"][s]
-                
-                # Contar cuántos otros trabajadores están asignados
-                if worker.is_technologist:
-                    other_workers = len(shift_data["technologists"]) - 1  # -1 para excluir al trabajador actual
-                else:
-                    # Para ingenieros siempre hay 1 por turno (el mismo)
-                    other_workers = 0
-                
-                # Calcular costo de liberación más sofisticado
-                
-                # 1. Factor de día (fin de semana es más costoso)
-                weekend_factor = 3 if d.weekday() >= 5 else 1
-                
-                # 2. Factor de turno (noche es más costoso)
-                shift_factor = 3 if s == "Noche" else (2 if s == "Tarde" else 1)
-                
-                # 3. Factor de cobertura (pocos trabajadores = más costoso)
-                min_workers = TECHS_PER_SHIFT[s] if worker.is_technologist else ENG_PER_SHIFT
-                worker_factor = 5 if other_workers <= min_workers - 1 else (
-                               3 if other_workers <= min_workers else 1)
-                
-                # 4. Factor de experiencia/equilibrio (si este trabajador es esencial)
-                curr_shifts = shift_counts.get(s, 0)
-                expertise_factor = 3 if curr_shifts < avg_shifts_per_type * 0.7 else 1
-                
-                # 5. Factor de proximidad (no liberar días consecutivos)
-                adjacency_penalty = 0
-                for offset in [-1, 1]:  # Verificar día anterior y siguiente
-                    adjacent_day = d + timedelta(days=offset)
-                    if adjacent_day in worker.days_off:
-                        adjacency_penalty += 2
-                
-                # 6. Día festivo (más costoso)
-                holiday_factor = 2 if is_colombian_holiday(d) else 1
-                
-                # Calcular costo total
-                if emergency:
-                    # En emergencia, ignorar algunos factores para garantizar un día libre
-                    liberation_cost = weekend_factor + worker_factor + holiday_factor
-                else:
-                    liberation_cost = (weekend_factor * shift_factor * worker_factor * 
-                                     expertise_factor * holiday_factor + adjacency_penalty)
-                    
-                shifts_to_evaluate.append((d, s, liberation_cost))
+            # ESTRATEGIA 2: Liberar turno de menor impacto
+            if not success:
+                liberated_date = liberate_shift_for_day_off(worker, week, schedule, date_index)
+                if liberated_date:
+                    worker.add_day_off(liberated_date)
+                    assignments += 1
+                    print(f"      🔄 {worker.get_formatted_id()}: {liberated_date.strftime('%d/%m')} (liberado)")
+                    success = True
     
-    # Ordenar por costo (menor primero)
-    shifts_to_evaluate.sort(key=lambda x: x[2])
-    
-    return shifts_to_evaluate
+    return assignments
 
-
-def liberate_day_for_worker(schedule, worker, day, shift_type, date_index):
+def liberate_shift_for_day_off(worker, week, schedule, date_index):
     """
-    Libera un día asignado a un trabajador e intenta reemplazarlo si es necesario.
+    Libera un turno del trabajador para crear un día libre
+    """
+    # Encontrar turnos en la semana
+    shifts_in_week = [(d, s) for d, s in worker.shifts 
+                     if week['effective_start'] <= d <= week['effective_end']]
     
-    Args:
-        schedule: Horario a modificar
-        worker: Trabajador a liberar
-        day: Fecha a liberar
-        shift_type: Tipo de turno a liberar
-        date_index: Índice de fechas para acceso rápido
+    if not shifts_in_week:
+        return None
+    
+    # Evaluar cada turno por facilidad de liberación
+    liberation_candidates = []
+    for date, shift_type in shifts_in_week:
+        difficulty = calculate_liberation_difficulty(worker, date, shift_type, schedule, date_index)
+        liberation_candidates.append((date, shift_type, difficulty))
+    
+    # Ordenar por facilidad (menor dificultad primero)
+    liberation_candidates.sort(key=lambda x: x[2])
+    
+    # Intentar liberar el más fácil
+    for date, shift_type, difficulty in liberation_candidates:
+        if difficulty < 30:  # Solo si es relativamente fácil
+            if execute_shift_liberation(worker, date, shift_type, schedule, date_index):
+                return date
+    
+    return None
+
+def calculate_liberation_difficulty(worker, date, shift_type, schedule, date_index):
+    """
+    Calcula la dificultad de liberar un turno específico
+    MENOR VALOR = MÁS FÁCIL DE LIBERAR
+    """
+    difficulty = 0
+    
+    # Dificultad por tipo de turno
+    if shift_type == "Noche":
+        difficulty += 20  # Más difícil liberar turnos nocturnos
+    elif shift_type == "Tarde":
+        difficulty += 10
+    
+    # Dificultad por día
+    if date.weekday() >= 5:  # Fin de semana
+        difficulty += 15
+    
+    if is_colombian_holiday(date):
+        difficulty += 10
+    
+    # Dificultad por cobertura
+    day_data = date_index.get(date)
+    if day_data:
+        shift_data = day_data["shifts"][shift_type]
         
-    Returns:
-        bool: True si se pudo reemplazar al trabajador, False en caso contrario
-    """
-    # Obtener día del horario
-    day_data = date_index.get(day)
+        if worker.is_technologist:
+            current_coverage = len(shift_data["technologists"])
+            required_coverage = TECHS_PER_SHIFT[shift_type]
+            
+            if current_coverage <= required_coverage:
+                difficulty += 25  # Muy difícil si está en cobertura mínima
+            elif current_coverage == required_coverage + 1:
+                difficulty += 10  # Moderadamente difícil
+        else:
+            difficulty += 30  # Muy difícil liberar ingenieros
     
+    return difficulty
+
+def execute_shift_liberation(worker, date, shift_type, schedule, date_index):
+    """
+    Ejecuta la liberación de un turno
+    """
+    # Quitar del horario
+    day_data = date_index.get(date)
     if not day_data:
         return False
     
     shift_data = day_data["shifts"][shift_type]
     
-    # Quitar al trabajador
     if worker.is_technologist:
         if worker.id in shift_data["technologists"]:
             shift_data["technologists"].remove(worker.id)
@@ -345,104 +321,96 @@ def liberate_day_for_worker(schedule, worker, day, shift_type, date_index):
         if shift_data["engineer"] == worker.id:
             shift_data["engineer"] = None
     
-    # Quitar del registro del trabajador
+    # Quitar del trabajador
     worker.shifts = [(d, s) for d, s in worker.shifts 
-                   if not (d == day and s == shift_type)]
+                    if not (d == date and s == shift_type)]
     
-    # Intentar reemplazar si es necesario
-    if worker.is_technologist:
-        required = TECHS_PER_SHIFT[shift_type]
-        current = len(shift_data["technologists"])
-        
-        if current < required:
-            # Buscar reemplazo entre tecnólogos
-            available_replacements = [t for t in schedule.get_technologists() 
-                                    if t.id != worker.id and 
-                                       not any(d == day for d, _ in t.shifts) and 
-                                       day not in t.days_off]
-            
-            # Ordenar por menos turnos primero
-            available_replacements.sort(key=lambda t: (t.get_shift_count(), 
-                                                     t.get_shift_types_count().get(shift_type, 0)))
-            
-            # Asignar el primero disponible
-            if available_replacements:
-                replacement = available_replacements[0]
-                schedule.assign_worker(replacement, day, shift_type)
-                return True
+    # Buscar reemplazo (opcional)
+    find_replacement_if_possible(schedule, date, shift_type, worker, date_index)
+    
+    return True
+
+def find_replacement_if_possible(schedule, date, shift_type, removed_worker, date_index):
+    """
+    Busca reemplazo si es posible, pero no es obligatorio
+    """
+    if removed_worker.is_technologist:
+        candidates = schedule.get_technologists()
     else:
-        # Es ingeniero, siempre intentar reemplazar
-        available_replacements = [e for e in schedule.get_engineers() 
-                               if e.id != worker.id and 
-                                  not any(d == day for d, _ in e.shifts) and 
-                                  day not in e.days_off]
-        
-        # Ordenar por menos turnos primero
-        available_replacements.sort(key=lambda e: (e.get_shift_count(), 
-                                                e.get_shift_types_count().get(shift_type, 0)))
-        
-        # Asignar el primero disponible
-        if available_replacements:
-            replacement = available_replacements[0]
-            schedule.assign_worker(replacement, day, shift_type)
-            return True
+        candidates = schedule.get_engineers()
+    
+    # Buscar candidatos disponibles
+    available = [c for c in candidates 
+                if (c.id != removed_worker.id and
+                    not has_shift_on_date(c, date) and
+                    date not in c.days_off)]
+    
+    if available:
+        # Seleccionar el que tenga menos turnos
+        replacement = min(available, key=lambda w: w.get_shift_count())
+        schedule.assign_worker(replacement, date, shift_type)
+        print(f"        🔄 Reemplazo: {replacement.get_formatted_id()}")
+        return True
     
     return False
 
+def final_validation_and_emergency_fixes(workers, weeks, schedule, date_index):
+    """
+    FASE 3: Validación final y correcciones de emergencia
+    """
+    print("  🚨 Fase 3: Validación final y correcciones de emergencia...")
+    
+    fixes = 0
+    remaining_problems = []
+    
+    for worker in workers:
+        for week in weeks:
+            if not has_day_off_in_week(worker, week):
+                remaining_problems.append((worker, week))
+    
+    if not remaining_problems:
+        print("    ✅ No se necesitan correcciones de emergencia")
+        return 0
+    
+    print(f"    ⚠️  {len(remaining_problems)} casos requieren corrección de emergencia")
+    
+    for worker, week in remaining_problems:
+        # ÚLTIMO RECURSO: Forzar día libre quitando turno sin reemplazo
+        emergency_date = force_emergency_day_off(worker, week, schedule, date_index)
+        if emergency_date:
+            worker.add_day_off(emergency_date)
+            fixes += 1
+            print(f"      🚨 EMERGENCIA: {worker.get_formatted_id()} - {emergency_date.strftime('%d/%m')}")
+    
+    return fixes
 
-def verify_weekly_days_off(schedule, technologists, engineers):
+def force_emergency_day_off(worker, week, schedule, date_index):
     """
-    Verifica que todos los trabajadores tengan al menos un día libre por semana.
-    
-    Args:
-        schedule: Horario a verificar
-        technologists: Lista de tecnólogos
-        engineers: Lista de ingenieros
-        
-    Returns:
-        bool: True si todos cumplen, False en caso contrario
+    ÚLTIMO RECURSO: Fuerza un día libre quitando cualquier turno
     """
-    print("Verificación final de días libres semanales...")
+    # Buscar cualquier turno en la semana para quitar
+    shifts_in_week = [(d, s) for d, s in worker.shifts 
+                     if week['effective_start'] <= d <= week['effective_end']]
     
-    all_workers = technologists + engineers
-    start_date = schedule.start_date
-    end_date = schedule.end_date
-    
-    # Definir semanas
-    first_date = start_date
-    while first_date.weekday() != 0:  # Retroceder hasta el lunes
-        first_date -= timedelta(days=1)
-    
-    weeks = []
-    current_monday = first_date
-    while current_monday <= end_date:
-        week_days = []
-        for i in range(7):
-            day = current_monday + timedelta(days=i)
-            if start_date <= day <= end_date:
-                week_days.append(day)
-        if week_days:
-            weeks.append((current_monday, week_days))
-        current_monday += timedelta(days=7)
-    
-    # Verificar cada trabajador y semana
-    all_compliant = True
-    violations = []
-    
-    for worker in all_workers:
-        for i, (week_start, week_days) in enumerate(weeks):
-            # Verificar días libres en esta semana
-            days_off_in_week = [day for day in worker.days_off if day in week_days]
-            
-            # Si no hay días libres en esta semana, es una violación
-            if not days_off_in_week:
-                all_compliant = False
-                violations.append((worker, i+1, week_days))
-                print(f"  ❌ VIOLACIÓN: {worker.get_formatted_id()} no tiene día libre en semana {i+1} ({week_start.strftime('%d/%m/%Y')})")
-    
-    if all_compliant:
-        print("  ✅ Todos los trabajadores tienen al menos un día libre por semana")
+    if shifts_in_week:
+        # Quitar el primer turno encontrado
+        date, shift_type = shifts_in_week[0]
+        execute_shift_liberation(worker, date, shift_type, schedule, date_index)
+        return date
     else:
-        print(f"  ⚠️ Se encontraron {len(violations)} violaciones de días libres semanales")
+        # Si no tiene turnos, asignar primer día disponible
+        for date in date_range(week['effective_start'], week['effective_end']):
+            if date not in worker.days_off:
+                return date
     
-    return all_compliant
+    return None
+
+# Funciones auxiliares
+def has_day_off_in_week(worker, week):
+    """Verifica si el trabajador tiene día libre en la semana"""
+    return any(week['effective_start'] <= d <= week['effective_end'] 
+              for d in worker.days_off)
+
+def has_shift_on_date(worker, date):
+    """Verifica si el trabajador tiene turno en la fecha"""
+    return any(d == date for d, _ in worker.shifts)

@@ -22,6 +22,11 @@ from config.settings import NUM_TECHNOLOGISTS, NUM_ENGINEERS
 from core.constraints import validate_schedule
 from utils.analysis import analyze_schedule
 
+#Borrar despues
+
+from utils.diagnostic import analyze_days_off_failures, recommend_fixes
+
+
 def main():
     """Función principal del generador de horarios."""
     if len(sys.argv) < 3:
@@ -138,6 +143,23 @@ def main():
     print("\n=== ESTADÍSTICAS DE TURNOS POR TRABAJADOR ===")
     print_worker_stats(technologists, "TECNÓLOGOS")
     print_worker_stats(engineers, "INGENIEROS")
+
+    # DIAGNÓSTICO DETALLADO DE DÍAS LIBRES
+    print("\n" + "="*60)
+    print("DIAGNÓSTICO DETALLADO DE DÍAS LIBRES")
+    print("="*60)
+    
+    try:
+        
+        problematic_workers, weeks = analyze_days_off_failures(schedule)
+        recommend_fixes(problematic_workers, weeks)
+    except ImportError as e:
+        print(f"Error al importar diagnóstico: {e}")
+        print("Asegúrate de que utils/diagnostic.py existe")
+    except Exception as e:
+        print(f"Error en diagnóstico: {e}")
+    
+    print("="*60)
     
     print("\nProceso completado con éxito.")
     print(f"Consulta el análisis detallado en: {analysis_filename}")
